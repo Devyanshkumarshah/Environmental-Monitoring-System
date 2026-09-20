@@ -22,6 +22,9 @@
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
+#include "i2c.h"
+#include "BMP.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -35,11 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-typedef struct {
-    uint8_t  sensor_id;
-    uint16_t value;
-    uint8_t  reserved;
-} SensorQueueItem_t;
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -129,7 +128,7 @@ void MX_FREERTOS_Init(void) {
   sensor_queueHandle = osMessageQueueNew (10, 4, &sensor_queue_attributes);
 
   /* creation of display_queue */
-  display_queueHandle = osMessageQueueNew (5, 4, &display_queue_attributes); //this is for the display queue
+  display_queueHandle = osMessageQueueNew (5, 4, &display_queue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -148,70 +147,113 @@ void MX_FREERTOS_Init(void) {
   /* creation of oled_task */
   oled_taskHandle = osThreadNew(StartTask04, NULL, &oled_task_attributes);
 
-  if (oled_taskHandle == NULL)
-  {
-    Error_Handler();  // put a breakpoint inside Error_Handler() itself
-  }
+  /* USER CODE BEGIN RTOS_THREADS */
+
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
 
 }
 
-
-void StartDefaultTask(void *argument)    //smoke task
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the smoke_task thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
 {
-
+  /* USER CODE BEGIN StartDefaultTask */
+  /* Infinite loop */
   for(;;)
   {
-    osDelay(100);
-  }
 
+    osDelay(1);
+  }
+  /* USER CODE END StartDefaultTask */
 }
 
-
-void StartTask02(void *argument)     // temperature task
+/* USER CODE BEGIN Header_StartTask02 */
+/**
+* @brief Function implementing the temp_task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask02 */
+void StartTask02(void *argument)
 {
-  float temp;
-  DHT11_Data_t reading;
-  DHT11_Init(GPIOB, GPIO_PIN_5);
+  /* USER CODE BEGIN StartTask02 */
+  /* Infinite loop */
+	HAL_StatusTypeDef ready = HAL_I2C_IsDeviceReady(&hi2c1, 0x77 << 1, 3, 100);
+	 float temp;
+	 if (BMP180_Init(&hi2c1) != BMP180_OK)
+	 {
+	     Error_Handler();   /* or set an error flag instead, your call */
+	 }
 
+	 for(;;)
+	 {
+		 if(BMP180_ReadTemperature(&temp) == BMP180_OK)
+		 {
+		  osMessageQueuePut(sensor_queueHandle, &temp, 0, pdMS_TO_TICKS(50));
+		 }
+		       /* else: read failed - skip this cycle, next read comes in 2s */
+	     osDelay(2000);
+	 }
+  /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Header_StartTask03 */
+/**
+* @brief Function implementing the process_task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask03 */
+void StartTask03(void *argument)
+{
+  /* USER CODE BEGIN StartTask03 */
+	float receivedTemp;
+  /* Infinite loop */
   for(;;)
   {
-      if (DHT11_Read(&reading) == DHT11_OK)
-      {
-          temp = (float)reading.temperature_int;
-          osMessageQueuePut(sensor_queueHandle, &temp, 0, 0);
-      }
-      osDelay(2000);
+	osMessageQueueGet(sensor_queueHandle, &receivedTemp, NULL, osWaitForever);
+	osMessageQueuePut(display_queueHandle, &receivedTemp, 0, osWaitForever);     //till now we have we the data in the display queue
+	osDelay(50);
   }
+  /* USER CODE END StartTask03 */
 }
 
-void StartTask03(void *argument)       //process task
+/* USER CODE BEGIN Header_StartTask04 */
+/**
+* @brief Function implementing the oled_task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask04 */
+void StartTask04(void *argument)
 {
-
-  float receivedTemp;
-  for(;;)
-  {
-	  osMessageQueueGet(sensor_queueHandle, &receivedTemp, NULL, osWaitForever);
-	  osMessageQueuePut(display_queueHandle, &receivedTemp, 0, osWaitForever);     //till now we have we the data in the display queue
-
-	  osDelay(50);
-  }
-
-}
-
-
-void StartTask04(void *argument)    //display task
-{
+  /* USER CODE BEGIN StartTask04 */
+  /* Infinite loop */
 	float display_temp;
   for(;;)
   {
-	  if(osMessageQueueGet(display_queueHandle, &display_temp, 0, osWaitForever) == osOK)
-	  {
+	if(osMessageQueueGet(display_queueHandle, &display_temp, 0, osWaitForever) == osOK)
+	  	{
+			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	  	}
 
-	  }
 
-	  osDelay();
+    osDelay(1);
   }
+  /* USER CODE END StartTask04 */
 }
 
+/* Private application code --------------------------------------------------*/
+/* USER CODE BEGIN Application */
 
+/* USER CODE END Application */
 

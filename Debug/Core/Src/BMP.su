@@ -1,0 +1,4 @@
+../Core/Src/BMP.c:45:24:BMP180_ReadInt16	40	static
+../Core/Src/BMP.c:56:24:BMP180_ReadUInt16	40	static
+../Core/Src/BMP.c:67:17:BMP180_Init	16	static
+../Core/Src/BMP.c:87:17:BMP180_ReadTemperature	56	static
