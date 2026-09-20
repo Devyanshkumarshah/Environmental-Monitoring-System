@@ -35,7 +35,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+typedef struct {
+    uint8_t  sensor_id;
+    uint16_t value;
+    uint8_t  reserved;
+} SensorQueueItem_t;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -163,25 +167,20 @@ void StartDefaultTask(void *argument)    //smoke task
 }
 
 
-float readTemperature(void)          //helper function to read the temperature sensor
-{
-	static float temp = 25;
-	temp = temp + 0.5;
-	if(temp > 45)
-	{
-		temp = 25;
-	}
-	return temp;
-}
-
 void StartTask02(void *argument)     // temperature task
 {
   float temp;
+  DHT11_Data_t reading;
+  DHT11_Init(GPIOB, GPIO_PIN_5);
+
   for(;;)
   {
-	  temp = readTemperature();
-	  osMessageQueuePut(sensor_queueHandle, &temp, 0, 0);
-	  osDelay(1000);
+      if (DHT11_Read(&reading) == DHT11_OK)
+      {
+          temp = (float)reading.temperature_int;
+          osMessageQueuePut(sensor_queueHandle, &temp, 0, 0);
+      }
+      osDelay(2000);
   }
 }
 
