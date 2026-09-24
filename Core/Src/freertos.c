@@ -24,11 +24,31 @@
 #include "cmsis_os.h"
 #include "i2c.h"
 #include "BMP.h"
-
+#include "i2c.h"
+#include "adc.h"
+#include "BMP.h"
+#include "MQ.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+/* USER CODE BEGIN PTD */
+typedef struct {
+    uint8_t  flags;
+    int16_t  value;
+} SensorQueueItem_t;
 
+#define SRC_SMOKE_BIT   (0U << 0)
+#define SRC_TEMP_BIT    (1U << 0)
+#define ALERT_BIT       (1U << 1)
+
+#define IS_TEMP(item)   ((item).flags & SRC_TEMP_BIT)
+#define IS_ALERT(item)  ((item).flags & ALERT_BIT)
+/* USER CODE END PTD */
+
+/* USER CODE BEGIN PD */
+#define SMOKE_THRESHOLD_RAW   2000
+#define TEMP_THRESHOLD_C10    500
+/* USER CODE END PD */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -167,9 +187,20 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+	SensorQueueItem_t item;
+	uint16_t smoke_raw;
+
+	MQ2_Init(&hadc1);
   /* Infinite loop */
   for(;;)
   {
+	  if (MQ2_ReadRaw(&smoke_raw) == MQ2_OK)
+	  {
+		  item.flags = SRC_SMOKE_BIT;
+	      item.value = (int16_t)smoke_raw;
+	      osMessageQueuePut(sensor_queueHandle, &item, 0, pdMS_TO_TICKS(50));
+	  }
+
 
     osDelay(1);
   }
@@ -187,7 +218,7 @@ void StartTask02(void *argument)
 {
   /* USER CODE BEGIN StartTask02 */
   /* Infinite loop */
-	HAL_StatusTypeDef ready = HAL_I2C_IsDeviceReady(&hi2c1, 0x77 << 1, 3, 100);
+//	HAL_StatusTypeDef ready = HAL_I2C_IsDeviceReady(&hi2c1, 0x77 << 1, 3, 100);
 	 float temp;
 	 if (BMP180_Init(&hi2c1) != BMP180_OK)
 	 {
