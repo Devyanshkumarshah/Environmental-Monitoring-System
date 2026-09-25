@@ -26,11 +26,8 @@
 #include "cmsis_os.h"
 #include "i2c.h"
 #include "BMP.h"
-#include "i2c.h"
 #include "adc.h"
-#include "BMP.h"
 #include "oled.h"
-
 /* USER CODE END PTD */
 
 
@@ -209,7 +206,7 @@ void StartDefaultTask(void *argument)            // it uses ADC
 	  }
 
 
-    osDelay(1);
+    osDelay(1000);
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -321,6 +318,7 @@ void StartTask04(void *argument)         // uses I2C interface
   {
       if (osMessageQueueGet(display_queueHandle, &item, 0, osWaitForever) == osOK)
       {
+    	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
           if (osMutexAcquire(hi2c1_mutexHandle, pdMS_TO_TICKS(100)) == osOK)
           {
               if (IS_TEMP(item))
@@ -334,7 +332,7 @@ void StartTask04(void *argument)         // uses I2C interface
               osMutexRelease(hi2c1_mutexHandle);
           }
       }
-      osDelay(1);
+      osDelay(100);
   }
   /* USER CODE END StartTask04 */
 }
