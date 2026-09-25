@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+#include <mq2.h>
 #include "FreeRTOS.h"
 #include "task.h"
 #include "main.h"
@@ -27,7 +29,10 @@
 #include "i2c.h"
 #include "adc.h"
 #include "BMP.h"
-#include "MQ.h"
+#include "oled.h"
+
+/* USER CODE END PTD */
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -44,21 +49,15 @@ typedef struct {
 #define IS_TEMP(item)   ((item).flags & SRC_TEMP_BIT)
 #define IS_ALERT(item)  ((item).flags & ALERT_BIT)
 /* USER CODE END PTD */
-
-/* USER CODE BEGIN PD */
-#define SMOKE_THRESHOLD_RAW   2000
-#define TEMP_THRESHOLD_C10    500
-/* USER CODE END PD */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
 
-/* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SMOKE_THRESHOLD_RAW   2000
+#define TEMP_THRESHOLD_C10    500
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -108,6 +107,11 @@ osMessageQueueId_t display_queueHandle;
 const osMessageQueueAttr_t display_queue_attributes = {
   .name = "display_queue"
 };
+/* Definitions for hi2c1_mutex */
+osMutexId_t hi2c1_mutexHandle;
+const osMutexAttr_t hi2c1_mutex_attributes = {
+  .name = "hi2c1_mutex"
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -130,6 +134,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
+  /* Create the mutex(es) */
+  /* creation of hi2c1_mutex */
+  hi2c1_mutexHandle = osMutexNew(&hi2c1_mutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -184,7 +191,7 @@ void MX_FREERTOS_Init(void) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+void StartDefaultTask(void *argument)            // it uses ADC
 {
   /* USER CODE BEGIN StartDefaultTask */
 	SensorQueueItem_t item;
@@ -214,26 +221,33 @@ void StartDefaultTask(void *argument)
 * @retval None
 */
 /* USER CODE END Header_StartTask02 */
-void StartTask02(void *argument)
+void StartTask02(void *argument)                   //uses I2C inteface
 {
   /* USER CODE BEGIN StartTask02 */
   /* Infinite loop */
 //	HAL_StatusTypeDef ready = HAL_I2C_IsDeviceReady(&hi2c1, 0x77 << 1, 3, 100);
-	 float temp;
-	 if (BMP180_Init(&hi2c1) != BMP180_OK)
-	 {
-	     Error_Handler();   /* or set an error flag instead, your call */
-	 }
+	float temp_c;
+	SensorQueueItem_t item;
 
-	 for(;;)
-	 {
-		 if(BMP180_ReadTemperature(&temp) == BMP180_OK)
-		 {
-		  osMessageQueuePut(sensor_queueHandle, &temp, 0, pdMS_TO_TICKS(50));
-		 }
-		       /* else: read failed - skip this cycle, next read comes in 2s */
-	     osDelay(2000);
-	 }
+	if (BMP180_Init(&hi2c1) != BMP180_OK)
+	{
+		Error_Handler();   /* or set an error flag instead, your call */
+	}
+
+	for(;;)
+	{
+		if (osMutexAcquire(hi2c1_mutexHandle, pdMS_TO_TICKS(100)) == osOK)
+		{
+			if (BMP180_ReadTemperature(&temp_c) == BMP180_OK)
+				{
+			    	item.flags = SRC_TEMP_BIT;
+			        item.value = (int16_t)(temp_c * 10.0f);
+			        osMessageQueuePut(sensor_queueHandle, &item, 0, pdMS_TO_TICKS(50));
+			     }
+			osMutexRelease(hi2c1_mutexHandle);
+		}
+		osDelay(200);
+	}
   /* USER CODE END StartTask02 */
 }
 
@@ -247,15 +261,40 @@ void StartTask02(void *argument)
 void StartTask03(void *argument)
 {
   /* USER CODE BEGIN StartTask03 */
-	float receivedTemp;
-  /* Infinite loop */
-  for(;;)
-  {
-	osMessageQueueGet(sensor_queueHandle, &receivedTemp, NULL, osWaitForever);
-	osMessageQueuePut(display_queueHandle, &receivedTemp, 0, osWaitForever);     //till now we have we the data in the display queue
-	osDelay(50);
-  }
-  /* USER CODE END StartTask03 */
+	SensorQueueItem_t item;
+	  /* Infinite loop */
+	for(;;)
+	{
+		osMessageQueueGet(sensor_queueHandle, &item, NULL, osWaitForever);
+
+		/* Threshold check - set/clear the alert bit based on source */
+		if (IS_TEMP(item))
+		{
+		    if (item.value > TEMP_THRESHOLD_C10)
+		    {
+		    	item.flags |= ALERT_BIT;
+		    }
+		    else
+		    {
+		    	item.flags &= ~ALERT_BIT;
+		    }
+		}
+		else /* smoke */
+		{
+		    if (item.value > SMOKE_THRESHOLD_RAW)
+		    {
+		    	item.flags |= ALERT_BIT;
+		    }
+		    else
+		    {
+		    	item.flags &= ~ALERT_BIT;
+		    }
+		}
+
+		osMessageQueuePut(display_queueHandle, &item, 0, osWaitForever);
+		osDelay(20);
+	  }
+	  /* USER CODE END StartTask03 */
 }
 
 /* USER CODE BEGIN Header_StartTask04 */
@@ -265,20 +304,37 @@ void StartTask03(void *argument)
 * @retval None
 */
 /* USER CODE END Header_StartTask04 */
-void StartTask04(void *argument)
+void StartTask04(void *argument)         // uses I2C interface
 {
   /* USER CODE BEGIN StartTask04 */
-  /* Infinite loop */
-	float display_temp;
+  SensorQueueItem_t item;
+
+  /* One-time init - must happen before the loop, and needs the I2C bus,
+   * so take the mutex briefly here too (temp_task could be mid-transaction). */
+  if (osMutexAcquire(hi2c1_mutexHandle, pdMS_TO_TICKS(100)) == osOK)
+  {
+      OLED_Init(&hi2c1);
+      osMutexRelease(hi2c1_mutexHandle);
+  }
+
   for(;;)
   {
-	if(osMessageQueueGet(display_queueHandle, &display_temp, 0, osWaitForever) == osOK)
-	  	{
-			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	  	}
-
-
-    osDelay(1);
+      if (osMessageQueueGet(display_queueHandle, &item, 0, osWaitForever) == osOK)
+      {
+          if (osMutexAcquire(hi2c1_mutexHandle, pdMS_TO_TICKS(100)) == osOK)
+          {
+              if (IS_TEMP(item))
+              {
+                  OLED_ShowTemp(item.value / 10.0f, IS_ALERT(item));
+              }
+              else
+              {
+                  OLED_ShowSmoke(item.value, IS_ALERT(item));
+              }
+              osMutexRelease(hi2c1_mutexHandle);
+          }
+      }
+      osDelay(1);
   }
   /* USER CODE END StartTask04 */
 }

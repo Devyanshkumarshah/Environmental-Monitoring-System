@@ -1,0 +1,2 @@
+../Core/Src/mq2.c:9:14:MQ2_Init	1
+../Core/Src/mq2.c:16:14:MQ2_ReadRaw	4

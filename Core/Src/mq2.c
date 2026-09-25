@@ -1,5 +1,5 @@
 
-#include "MQ.h"
+#include <mq2.h>
 
 static ADC_HandleTypeDef *mq2_hadc = NULL;
 static uint8_t            initialized = 0;
