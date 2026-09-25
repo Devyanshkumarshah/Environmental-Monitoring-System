@@ -1,4 +1,4 @@
-## Environment Monitoring System
+## FreeRTOS-Based Multi-Sensor Monitoring System with Queue-Driven Inter-Task Communication and Mutex-Protected I2C Bus Sharing
 
 A real-time embedded monitoring system built on **STM32L476RG** using **FreeRTOS**,
 combining smoke and temperature sensing with alert-driven OLED display output.
